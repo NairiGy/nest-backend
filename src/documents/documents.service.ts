@@ -1,11 +1,12 @@
 import { Template } from './../templates/entities/template.entity';
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { CreateDocumentDto, Entry } from './dto/create-document.dto';
+import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import { Document } from './entities/document.entity';
 import { DocumentField } from './entities/documentField.entity';
+import { CreateDocumentFieldDto } from './dto/create-documentField.dto';
 
 @Injectable()
 export class DocumentsService {
@@ -17,41 +18,55 @@ export class DocumentsService {
     private readonly entityManager: EntityManager,
   ) {}
 
-  validateEntiries(entries: Entry[], template: Template) {
+  private validateDocumentFieldDto(
+    template: Template,
+    createDocumentFieldDto: CreateDocumentFieldDto,
+  ) {
     const errors = [];
-    const validatedFields = template.attributes.map((attribute) => {
-      const field = entries.find((f) => f.name === attribute.name);
-      if (!field) {
-        errors.push(`Field ${attribute.name} is required`);
-        return;
+    const attribute = template.attributes.find(
+      (attribute) => attribute.name === createDocumentFieldDto.name,
+    );
+
+    if (!attribute) {
+      errors.push(`No field found with name ${createDocumentFieldDto.name}`);
+    }
+
+    const documentFieldType = attribute.type;
+
+    if (documentFieldType === 'date') {
+      if (isNaN(Date.parse(createDocumentFieldDto.value))) {
+        errors.push(`Field ${attribute.name} should be date`);
       }
-
-      if (attribute.type === 'date') {
-        if (isNaN(Date.parse(field.value))) {
-          errors.push(`Field ${attribute.name} should be date`);
-        }
-      } else if (typeof field.value !== attribute.type) {
-        errors.push(
-          `Field ${attribute.name} should be of type ${attribute.type}`,
-        );
-      }
-
-      return {
-        name: field.name,
-        type: attribute.type,
-        attribute,
-        value: field.value,
-      };
-    });
-
+    } else if (typeof createDocumentFieldDto.value !== attribute.type) {
+      errors.push(
+        `Field ${attribute.name} should be of type ${attribute.type}`,
+      );
+    }
     if (errors.length > 0) {
       throw new BadRequestException(errors);
     }
-    return validatedFields;
+  }
+  private updateDocumentField(
+    document: Document,
+    updateDocumentFieldtDto: CreateDocumentFieldDto,
+  ) {
+    this.validateDocumentFieldDto(document.template, updateDocumentFieldtDto);
+
+    const documentField = document.fields.find(
+      (field) => field.attribute.name === updateDocumentFieldtDto.name,
+    );
+    const documentFieldIdToUpdate = document.fields.indexOf(documentField);
+
+    document.fields[documentFieldIdToUpdate] = new DocumentField({
+      ...documentField,
+      value: updateDocumentFieldtDto.value,
+    });
+
+    return new Document(document);
   }
 
   async create(createDocumentDto: CreateDocumentDto) {
-    const { templateId, fields } = createDocumentDto;
+    const { templateId } = createDocumentDto;
     const template = await this.templatesRepository.findOne({
       where: { id: templateId },
       relations: ['attributes'],
@@ -59,14 +74,26 @@ export class DocumentsService {
     if (!template) {
       throw new BadRequestException(`No template found with id ${templateId}`);
     }
-    const validatedFields = this.validateEntiries(fields, template);
+
+    createDocumentDto.fields.forEach((createDocumentFieldDto) => {
+      this.validateDocumentFieldDto(template, createDocumentFieldDto);
+    });
+
+    const documentFields = createDocumentDto.fields.map(
+      (createDocumentFieldDto) =>
+        new DocumentField({
+          ...createDocumentFieldDto,
+          attribute: template.attributes.find(
+            (attribute) => attribute.name === createDocumentFieldDto.name,
+          ),
+        }),
+    );
+    console.log(documentFields);
 
     const document = new Document({
       ...createDocumentDto,
       template: template,
-      fields: validatedFields.map(
-        (createFieldDto) => new DocumentField(createFieldDto),
-      ),
+      fields: documentFields,
     });
     await this.entityManager.save(document);
   }
@@ -104,55 +131,27 @@ export class DocumentsService {
   }
 
   async update(id: number, updateDocumentDto: UpdateDocumentDto) {
-    // await this.entityManager.transaction(async (entityManager) => {
-    //   const document = await this.documentsRepository.findOne({
-    //     where: { id },
-    //     relations: ['template'],
-    //   });
-
-    //   if (!document) {
-    //     throw new BadRequestException(`No document found with id ${id}`);
-    //   }
-
-    //   this.validateEntiries(updateDocumentDto.fields, template);
-
-    //   const fields = updateDocumentDto.fields.map(
-    //     (createFieldDto) => new DocumentField(createFieldDto),
-    //   );
-    // });
     const document = await this.documentsRepository.findOne({
       where: { id },
-      relations: ['template', 'fields', 'fields.attribute'],
+      relations: [
+        'template',
+        'template.attributes',
+        'fields',
+        'fields.attribute',
+      ],
     });
 
     if (!document) {
       throw new BadRequestException(`No document found with id ${id}`);
     }
+    let updatedDocument: Document = document;
 
-    const template = await this.templatesRepository.findOne({
-      where: { id: document.template.id },
-      relations: ['attributes'],
+    updateDocumentDto.fields.forEach((field) => {
+      updatedDocument = this.updateDocumentField(updatedDocument, field);
     });
-    console.log(template);
-    console.log(updateDocumentDto);
-    const validatedFields = this.validateEntiries(
-      updateDocumentDto.fields,
-      template,
-    );
-    // const fields = updateDocumentDto.fields.map(
-    //   (createFieldDto) => new DocumentField(createFieldDto),
-    // );
-    // document.fields = fields;
-    document.name = updateDocumentDto.name;
-    delete document.template;
-    await this.entityManager.save(
-      new Document({
-        ...document,
-        fields: validatedFields.map(
-          (createFieldDto) => new DocumentField(createFieldDto),
-        ),
-      }),
-    );
+    updatedDocument.name = updateDocumentDto.name;
+
+    await this.entityManager.save(updatedDocument);
   }
 
   async remove(id: number) {

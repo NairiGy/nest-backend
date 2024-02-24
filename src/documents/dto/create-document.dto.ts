@@ -27,5 +27,5 @@ export class CreateDocumentDto {
     each: true,
   })
   @Type(() => CreateDocumentFieldDto)
-  fields: Entry[];
+  fields: CreateDocumentFieldDto[];
 }
