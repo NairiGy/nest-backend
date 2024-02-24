@@ -8,6 +8,17 @@ import { Document } from './entities/document.entity';
 import { DocumentField } from './entities/documentField.entity';
 import { CreateDocumentFieldDto } from './dto/create-documentField.dto';
 
+function isDate(value: string) {
+  return !isNaN(Date.parse(value));
+}
+
+function formatValue(field: DocumentField) {
+  if (field.attribute.type === 'number') {
+    return Number(field.value);
+  }
+  return field.value;
+}
+
 @Injectable()
 export class DocumentsService {
   constructor(
@@ -31,12 +42,8 @@ export class DocumentsService {
       errors.push(`No field found with name ${createDocumentFieldDto.name}`);
     }
 
-    const documentFieldType = attribute.type;
-
-    if (documentFieldType === 'date') {
-      if (isNaN(Date.parse(createDocumentFieldDto.value))) {
-        errors.push(`Field ${attribute.name} should be date`);
-      }
+    if (attribute.type === 'date' && !isDate(createDocumentFieldDto.value)) {
+      errors.push(`Field ${attribute.name} should be date`);
     } else if (typeof createDocumentFieldDto.value !== attribute.type) {
       errors.push(
         `Field ${attribute.name} should be of type ${attribute.type}`,
@@ -111,12 +118,6 @@ export class DocumentsService {
     if (!document) {
       throw new BadRequestException(`No document found with id ${id}`);
     }
-    const formatValue = (field) => {
-      if (field.attribute.type === 'number') {
-        return Number(field.value);
-      }
-      return field.value;
-    };
     const documentFields = document.fields.map((field) => {
       return {
         name: field.attribute.name,

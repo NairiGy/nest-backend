@@ -1,10 +1,4 @@
-## Installation
-
-```bash
-
-$  npm  install
-
-```
+[![Maintainability](https://api.codeclimate.com/v1/badges/ca6928816d5e05c90c7a/maintainability)](https://codeclimate.com/github/NairiGy/nest-backend/maintainability)
 
 ## Running the app using docker
 
